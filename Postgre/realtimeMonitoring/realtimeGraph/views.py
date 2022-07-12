@@ -696,7 +696,7 @@ Cambio para devolver por ubicación
 }
 '''
 
-def get_json_by_place(self, **kwargs):
+def get_json_by_place(request, **kwargs):
     data_result = {}
 
     measureParam = kwargs.get("measure", None)
@@ -707,52 +707,50 @@ def get_json_by_place(self, **kwargs):
         selectedMeasure = Measurement.objects.filter(name=measureParam)[0]
     elif measurements.count() > 0:
         selectedMeasure = measurements[0]
-
-    locations = Location.objects.all()
+    
     try:
-        wheredata = self.request.GET.get('locatedIn',None)
+        citybusqueda = request.GET.get('city',None)
+        statebusqueda = request.GET.get('state',None)
+        countrybusqueda = request.GET.get('country',None)
     except:
-        wheredata = None
+        citybusqueda = None
+        statebusqueda = None
+        countrybusqueda = None
+
+    cityO, c = City.objects.get_or_create(name=citybusqueda)
+    stateO, c = State.objects.get_or_create(name=statebusqueda)
+    countryO, c = Country.objects.get_or_create(name=countrybusqueda)
+    loc, c = Location.objects.get_or_create(
+        city=cityO, state=stateO, country=countryO)
+    if loc.lat == None:
+        # TODO Geolocate including state and country #, {state}, {country}')
+        lat, lng = getCityCoordinates(f'{citybusqueda}, {statebusqueda}, {countrybusqueda}')
+        loc.lat = lat
+        loc.lng = lng
+        loc.save()
+   
+    stations = Station.objects.filter(location=loc)
+    locationData = Data.objects.filter(
+            station__in=stations, measurement__name=selectedMeasure.name)
 
     data = []
 
-    stations = Station.objects.filter(location=wheredata)
-    locationData = Data.objects.filter(
-            station__in=stations, measurement__name=selectedMeasure.name)
-    if locationData.count() <= 0:
-        minVal = locationData.aggregate(
+    minVal = locationData.aggregate(
             Min('value'))['value__min']
-        maxVal = locationData.aggregate(
-            Max('value'))['value__max']
-        avgVal = locationData.aggregate(
-            Avg('value'))['value__avg']
-        data.append({
-            'name': f'{""}, {""}, {""}',
-            'lat': "",
-            'lng': "",
-            'population': stations.count(),
-            'min': minVal if minVal != None else 0,
-            'max': maxVal if maxVal != None else 0,
-            'avg': round(avgVal if avgVal != None else 0, 2),
-        })
-    else:
-        minVal = locationData.aggregate(
-            Min('value'))['value__min']
-        maxVal = locationData.aggregate(
-            Max('value'))['value__max']
-        avgVal = locationData.aggregate(
-            Avg('value'))['value__avg']
-        data.append({
-            'name': f'{wheredata.city.name}, {wheredata.state.name}, {wheredata.country.name}',
-            'lat': wheredata.lat,
-            'lng': wheredata.lng,
-            'population': stations.count(),
-            'min': minVal if minVal != None else 0,
-            'max': maxVal if maxVal != None else 0,
-            'avg': round(avgVal if avgVal != None else 0, 2),
-        })
-
-    data_result["locations"] = [loc.str() for loc in locations]
+    maxVal = locationData.aggregate(
+        Max('value'))['value__max']
+    avgVal = locationData.aggregate(
+        Avg('value'))['value__avg']
+    data.append({
+        'name': f'{citybusqueda}, {statebusqueda}, {countrybusqueda}',
+        'lat': loc.lat,
+        'lng': loc.lng,
+        'population': stations.count(),
+        'min': minVal if minVal != None else 0,
+        'max': maxVal if maxVal != None else 0,
+        'avg': round(avgVal if avgVal != None else 0, 2),
+    })
+    data_result["locations"] = [loc.str()]
     data_result["data"] = data
 
     return JsonResponse(data_result)
